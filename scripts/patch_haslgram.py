@@ -143,6 +143,15 @@ def main() -> None:
         'getPrefs().edit().putString(KEY_ACCOUNT_SERVER + accountNum, ID_OWPENGRAM).apply();',
         "enforce HaslGram server assignment",
     )
+    # Never allow a caller, deep link, or an older saved account to select an
+    # alternate MTProto endpoint. Re-pin at the final Java -> native boundary.
+    servers = once(
+        servers,
+        'if (server == null) return;',
+        'server = owpengramServer(); // HaslGram-only: enforce pinned config at native boundary.',
+        "enforce endpoint at native configuration boundary",
+    )
+
     oldkey = re.search(
         r'    static final String OWPENGRAM_RSA_KEY =\s*.*?;\n'
         r'    // fingerprint == 0',
@@ -166,6 +175,18 @@ def main() -> None:
     picker = once(picker, 'actionBar.setSubtitle("Pick where to sign in");',
                   'actionBar.setSubtitle("Connect to the HaslGram network");', "picker subtitle")
     picker_file.write_text(picker, encoding="utf-8")
+
+    # An owpg://addserver link must not reopen server onboarding even when
+    # the server picker no longer contains the Add Server row.
+    launch_file = root / "TMessagesProj/src/main/java/org/telegram/ui/LaunchActivity.java"
+    launch = launch_file.read_text(encoding="utf-8")
+    launch = once(
+        launch,
+        "handleOwpengramAddServerLink(data);",
+        "/* HaslGram-only: external server enrollment is disabled. */",
+        "disable add-server deep links",
+    )
+    launch_file.write_text(launch, encoding="utf-8")
 
     app_gradle = root / "TMessagesProj_AppStandalone/build.gradle"
     ag = app_gradle.read_text(encoding="utf-8")
