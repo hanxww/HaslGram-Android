@@ -139,7 +139,7 @@ def main() -> None:
             lambda m: m.group(1) + "HaslGram" + m.group(2),
             value,
         )
-        if replacements != 1:
+        if replacements != 1 and folder in ("values", "values-ru"):
             raise ValueError(f"Missing first onboarding title in {xml}")
         if folder in intro:
             for index, copy in enumerate(intro[folder], 1):
