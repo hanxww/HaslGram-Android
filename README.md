@@ -68,3 +68,25 @@ server selection. This does **not** claim that every inherited Telegram
 feature, link or network integration has been audited. Full independence
 still requires on-device network testing and replacement/removal of any
 remaining upstream-only features.
+
+## HaslGram onboarding and economy (next test build)
+
+- **Direct login:** a fresh install opens phone registration immediately. The
+  HaslGram MTProto endpoint/key is pinned and applied automatically during
+  startup. No server chooser and no **Join** button are required. The intro
+  screen's legacy entry and the add-account path also bypass the server picker.
+- **Hasl Stars branding:** the UI uses the Hasl Stars name for the upstream
+  Telegram Stars user-facing strings. It does not forge local balance values.
+- **Starter balance / Premium:** the deployment template in
+  `server/haslgram-economy.env.example` proposes a one-time 2000-Stars grant
+  and zero complimentary Premium months. **These settings are not live until
+  deliberately applied to the real HaslGram MTProto server.**
+- **Gifts:** the Android upstream already has gift purchase, collectible
+  upgrade and Lottie animation UI. A real, compatible **server-side** catalog,
+  payment/upgrade RPC implementation, and licensed media assets are required
+  to make the requested normal-gift-then-paid-upgrade experience operational.
+  See `server/GIFTS_AND_STARS.md`. No gift catalog is fabricated in the APK.
+
+The first-launch change must still be verified on an actual Android device
+before treating the new APK as ready for production. An account's existing
+local data and keystore signature should be backed up before changing test APKs.
