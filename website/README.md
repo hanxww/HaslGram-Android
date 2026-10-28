@@ -14,7 +14,7 @@ python3 -m http.server 8000
 
 ## Публикация
 
-Скопируйте содержимое этой папки в корень статического хостинга (GitHub Pages, Cloudflare Pages, Netlify или свой сервер). При публикации на GitHub Pages из подкаталога `.github/workflows/site-pages.yml` может автоматически развернуть сайт **после включения Pages в настройках репозитория** (Settings → Pages → Source → GitHub Actions).
+Скопируйте содержимое этой папки в корень статического хостинга (GitHub Pages, Cloudflare Pages, Netlify или свой сервер). При публикации на GitHub Pages workflow `.github/workflows/website-pages.yml` может автоматически развернуть сайт **после включения Pages в настройках репозитория** (Settings → Pages → Source → GitHub Actions).
 
 **Адрес сайта пока не установлен.** Файл `CNAME` намеренно отсутствует. Если у вас есть домен, сначала подтвердите, что вы им управляете, настройте DNS, затем создайте `CNAME` с вашим доменом.
 
