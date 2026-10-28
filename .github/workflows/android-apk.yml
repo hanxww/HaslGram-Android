@@ -1,22 +1,98 @@
 name: HaslGram Android APK
 
 on:
-  workflow_dispatch:
   push:
     branches: [main]
     paths:
       - '.github/workflows/android-apk.yml'
-      - 'scripts/**'
+      - 'scripts/patch_haslgram.py'
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  verify:
+  build:
     runs-on: ubuntu-24.04
+    timeout-minutes: 120
     steps:
-      - uses: actions/checkout@v4
-      - name: Verify HaslGram build sources
+      - name: Checkout HaslGram build scripts
+        uses: actions/checkout@v4
+        with:
+          path: haslgram
+
+      - name: Checkout Android source
+        uses: actions/checkout@v4
+        with:
+          repository: owpengram/owpengram-android-client
+          ref: 4adc49b29dcfe8117cfd804131e403021df7c09a
+          path: android-source
+          fetch-depth: 1
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle 8.11.1
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android build dependencies
         run: |
-          python3 -m py_compile scripts/patch_haslgram.py
-          test -f README.md
+          sdkmanager --install \
+            'platforms;android-36' \
+            'build-tools;36.0.0' \
+            'ndk;27.2.12479018' \
+            'cmake;3.22.1'
+
+      - name: Create one-time test signing credentials
+        run: |
+          echo "HASLGRAM_CI_KEY_PASS=$(openssl rand -hex 24)" >> "$GITHUB_ENV"
+
+      - name: Apply HaslGram changes and validate server identity
+        run: |
+          python3 haslgram/scripts/patch_haslgram.py --source android-source
+
+      - name: Create one-time test keystore
+        working-directory: android-source
+        run: |
+          keytool -genkeypair -noprompt \
+            -keystore TMessagesProj/config/release.keystore \
+            -storepass "$HASLGRAM_CI_KEY_PASS" \
+            -keypass "$HASLGRAM_CI_KEY_PASS" \
+            -alias haslgramdebug \
+            -keyalg RSA -keysize 2048 -validity 365 \
+            -dname 'CN=HaslGram Test, OU=CI, O=HaslGram, C=US'
+
+      - name: Build ARM64 standalone debug APK
+        working-directory: android-source
+        run: |
+          gradle --no-daemon --max-workers=2 \
+            :TMessagesProj_AppStandalone:assembleAfatDebug \
+            --stacktrace
+
+      - name: Verify and collect test APK
+        run: |
+          set -euo pipefail
+          apk='android-source/TMessagesProj_AppStandalone/build/outputs/apk/afat/debug/app.apk'
+          test -s "$apk"
+          "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging "$apk" | grep "com.haslgram.messenger"
+          mkdir -p artifacts
+          cp "$apk" artifacts/HaslGram-Android-arm64-test.apk
+          (cd artifacts && sha256sum HaslGram-Android-arm64-test.apk > SHA256SUMS.txt)
+
+      - name: Upload test APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: HaslGram-Android-arm64-test
+          path: artifacts/*
+          retention-days: 14
+          if-no-files-found: error
