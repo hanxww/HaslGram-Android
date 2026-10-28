@@ -110,6 +110,57 @@ def main() -> None:
     if count < 1:
         raise ValueError("No OwpenGram application strings were found")
 
+    # The original Russian introduction still said Telegram even when the
+    # app label was already changed. Do not rewrite license or source notices:
+    # these are strictly user-facing welcome-page strings.
+    intro = {
+        "values": [
+            "An independent messenger powered by our own network.",
+            "Messages, groups and files in one familiar app.",
+            "Connect with your community on HaslGram.",
+            "Sign in by phone and a one-time confirmation code.",
+            "More features are coming as we develop.",
+            "Hasl Stars, Premium and gifts are in development.",
+        ],
+        "values-ru": [
+            "Независимый мессенджер на собственной инфраструктуре.",
+            "Личные сообщения, группы и файлы в одном приложении.",
+            "Общайтесь с друзьями в сети HaslGram.",
+            "Вход по номеру телефона и одноразовому коду.",
+            "Новые возможности появляются постепенно.",
+            "Hasl Stars, Premium и подарки находятся в разработке.",
+        ],
+    }
+    for xml in strings_dir.glob("values*/strings.xml"):
+        value = xml.read_text(encoding="utf-8")
+        folder = xml.parent.name
+        value, replacements = re.subn(
+            r'(<string name="Page1Title">)[^<]*(</string>)',
+            lambda m: m.group(1) + "HaslGram" + m.group(2),
+            value,
+        )
+        if replacements != 1:
+            raise ValueError(f"Missing first onboarding title in {xml}")
+        if folder in intro:
+            for index, copy in enumerate(intro[folder], 1):
+                key = f"Page{index}Message"
+                value, changed = re.subn(
+                    rf'(<string name="{key}">)[^<]*(</string>)',
+                    lambda m, copy=copy: m.group(1) + copy + m.group(2),
+                    value,
+                )
+                if changed != 1:
+                    raise ValueError(f"Missing {key} in {xml}")
+        else:
+            # Preserve other languages while removing Telegram as the name
+            # of our app from the six intro-page descriptions.
+            value = re.sub(
+                r'(<string name="Page[1-6]Message">)([^<]*)(</string>)',
+                lambda m: m.group(1) + m.group(2).replace("Telegram", "HaslGram") + m.group(3),
+                value,
+            )
+        xml.write_text(value, encoding="utf-8")
+
     servers_file = root / "TMessagesProj/src/main/java/org/telegram/owpengram/OwpengramServers.java"
     servers = servers_file.read_text(encoding="utf-8")
     servers = once(servers, 'public static final String ID_OWPENGRAM = "owpengram";',
@@ -174,6 +225,9 @@ def main() -> None:
                   'actionBar.setTitle("HaslGram");', "picker title")
     picker = once(picker, 'actionBar.setSubtitle("Pick where to sign in");',
                   'actionBar.setSubtitle("Connect to the HaslGram network");', "picker subtitle")
+    picker = once(picker, '"Official servers" : "Custom servers"',
+                  '"HaslGram network" : "Custom servers"',
+                  "rename server list section")
     picker_file.write_text(picker, encoding="utf-8")
 
     # An owpg://addserver link must not reopen server onboarding even when
@@ -186,7 +240,21 @@ def main() -> None:
         "/* HaslGram-only: external server enrollment is disabled. */",
         "disable add-server deep links",
     )
+    launch = once(launch, ': "OwpenGram";', ': "HaslGram";',
+                  "deep link account label")
     launch_file.write_text(launch, encoding="utf-8")
+
+    # Avoid sending HaslGram users to an upstream Telegram update or store.
+    vars_file = root / "TMessagesProj/src/main/java/org/telegram/messenger/BuildVars.java"
+    vars = vars_file.read_text(encoding="utf-8")
+    vars = once(vars, "public static boolean CHECK_UPDATES = true;",
+                "public static boolean CHECK_UPDATES = false;",
+                "disable upstream updates")
+    vars = once(vars,
+                'public static String PLAYSTORE_APP_URL = "https://play.google.com/store/apps/details?id=org.telegram.messenger";',
+                'public static String PLAYSTORE_APP_URL = "https://haslgram.site";',
+                "use HaslGram website")
+    vars_file.write_text(vars, encoding="utf-8")
 
     app_gradle = root / "TMessagesProj_AppStandalone/build.gradle"
     ag = app_gradle.read_text(encoding="utf-8")
