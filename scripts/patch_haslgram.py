@@ -354,6 +354,85 @@ def main() -> None:
     )
     profile_file.write_text(profile, encoding="utf-8")
 
+    # Do not expose the Telegram test backend checkbox on HaslGram.
+    # It calls switchBackend(false), changing DCs without re-pinning MTProto.
+    login_file = root / "TMessagesProj/src/main/java/org/telegram/ui/LoginActivity.java"
+    login = login_file.read_text(encoding="utf-8")
+    login = once(
+        login,
+        "final boolean allowTestBackend = (BuildVars.DEBUG_VERSION || TEST_BACKEND_IN_STORE && !BuildConfig.BUNDLE) || getConnectionsManager().isTestBackend();",
+        "final boolean allowTestBackend = false; // HaslGram uses only its production server.",
+        "hide Telegram test backend option",
+    )
+    login_file.write_text(login, encoding="utf-8")
+
+    # Block test-backend switching even if another UI tries to invoke it.
+    java_cm_file = root / "TMessagesProj/src/main/java/org/telegram/tgnet/ConnectionsManager.java"
+    java_cm = java_cm_file.read_text(encoding="utf-8")
+    java_cm = once(
+        java_cm,
+        '''    public void switchBackend(boolean restart) {
+        SharedPreferences preferences = MessagesController.getGlobalMainSettings();
+        preferences.edit().remove("language_showed2").commit();
+        native_switchBackend(currentAccount, restart);
+    }''',
+        '''    public void switchBackend(boolean restart) {
+        // HaslGram: Telegram test endpoints must never be selected.
+        // This intentionally does nothing.
+    }''',
+        "block legacy test backend toggle",
+    )
+    java_cm_file.write_text(java_cm, encoding="utf-8")
+
+    # Migrate users who checked Test backend in an older test APK.
+    # The testBackend flag persists in tgnet.dat, including across app restarts.
+    # Restoring the pinned server must normalize this mode and invalidate
+    # any stale test-network auth keys before the MTProto handshake.
+    cpp_cm_file = root / "TMessagesProj/jni/tgnet/ConnectionsManager.cpp"
+    cpp_cm = cpp_cm_file.read_text(encoding="utf-8")
+    cpp_cm = once(
+        cpp_cm,
+        '''    scheduleTask([&, host, port, isTelegram, mainDcId, pemKey, fingerprint, resetKeys] {
+        // 1. Per-instance RSA key.''',
+        '''    scheduleTask([&, host, port, isTelegram, mainDcId, pemKey, fingerprint, resetKeys] {
+        const bool wasTestBackend = !isTelegram && testBackend;
+        if (!isTelegram) {
+            testBackend = false; // HaslGram always uses the normal DC2.
+        }
+        // 1. Per-instance RSA key.''',
+        "repair persisted testBackend during server bootstrap",
+    )
+    cpp_cm = once(
+        cpp_cm,
+        '''                dc->suspendConnections(true);
+                if (resetKeys) {
+                    dc->clearAuthKey(HandshakeTypeAll);
+                }
+                dc->replaceAddresses(addrs, 0);          // regular ipv4''',
+        '''                dc->suspendConnections(true);
+                if (resetKeys || wasTestBackend) {
+                    dc->clearAuthKey(HandshakeTypeAll);
+                    if (wasTestBackend) {
+                        dc->clearServerSalts(false);
+                        dc->clearServerSalts(true);
+                    }
+                }
+                dc->replaceAddresses(addrs, 0);          // regular ipv4''',
+        "migrate stale test-mode auth keys",
+    )
+    cpp_cm = once(
+        cpp_cm,
+        '''void ConnectionsManager::switchBackend(bool restart) {
+    scheduleTask([&, restart] {
+        currentDatacenterId = 1;''',
+        '''void ConnectionsManager::switchBackend(bool restart) {
+    scheduleTask([&, restart] {
+        if (serverOptionsLocked) return; // HaslGram-only: never switch backends.
+        currentDatacenterId = 1;''',
+        "block native backend switch on pinned server",
+    )
+    cpp_cm_file.write_text(cpp_cm, encoding="utf-8")
+
     # Avoid sending HaslGram users to an upstream Telegram update or store.
     vars_file = root / "TMessagesProj/src/main/java/org/telegram/messenger/BuildVars.java"
     vars = vars_file.read_text(encoding="utf-8")
