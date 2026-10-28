@@ -44,3 +44,27 @@ OwpenGram Android derives from Telegram Android and is licensed under
 corresponding source when distributing modified APKs. The pinned upstream
 revision and this repository's patch are both part of the source for the
 resulting APK. See the upstream `LICENSE` file.
+
+
+## HaslGram branding (next Android test build)
+
+The overlay now includes the HaslGram channel/app icon as
+`branding/haslgram-icon.webp`. `scripts/brand_assets.py` generates the
+launcher icon at every Android density, round and adaptive icon foregrounds,
+upstream alternative-icon assets, onboarding/server-selector logo, and
+Android 12 splash image. The `patch_haslgram.py` overlay also replaces
+onboarding branding and Russian/English welcome copy. Copyright notices and
+source-code class names from the GPL upstream stay intact.
+
+Every build verifies the Android package and **HaslGram** application label.
+Review the `HaslGram-Android-arm64-branded-test` artifact from a successful
+GitHub Actions run. This is a test APK with a one-time signing key; it is
+not in-place upgradeable over earlier HaslGram debug APKs signed using
+different keys. Uninstall the old debug build first **only after backing up
+anything important in it**; uninstalling deletes the app's local data.
+
+**Scope:** Branded home-screen icons, splash, introductory screens and
+server selection. This does **not** claim that every inherited Telegram
+feature, link or network integration has been audited. Full independence
+still requires on-device network testing and replacement/removal of any
+remaining upstream-only features.
