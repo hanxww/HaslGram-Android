@@ -1,0 +1,22 @@
+name: HaslGram Android APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/android-apk.yml'
+      - 'scripts/**'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify HaslGram build sources
+        run: |
+          python3 -m py_compile scripts/patch_haslgram.py
+          test -f README.md
