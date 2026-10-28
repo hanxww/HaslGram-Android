@@ -227,11 +227,10 @@ def main() -> None:
         + ';\n    // fingerprint == 0'
     )
     servers = servers[:oldkey.start()] + newkey + servers[oldkey.end():]
-    # Prevent accidental shadowing of the verified RSA key (a prior build
-    # embedded "Page6Message" here, causing endless req_pq retries).
-    rsa_literal = re.search(
-        r'(?m)^    static final String OWPENGRAM_RSA_KEY = ("[^"]+");
-
+    # The Android APK must use the verified PEM, not a UI resource name.
+    if json.dumps(verified_public_key_pem) not in servers:
+        raise ValueError('HaslGram RSA public key missing in patched Java')
+    servers_file.write_text(servers, encoding="utf-8")
     picker_file = root / "TMessagesProj/src/main/java/org/telegram/ui/ServerSelectFragment.java"
     picker = picker_file.read_text(encoding="utf-8")
     picker = once(picker, 'rows.add("add");\n', '', "hide add-server button")
