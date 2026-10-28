@@ -11,7 +11,9 @@ import argparse
 import base64
 import hashlib
 import json
+import os
 import re
+import urllib.request
 from pathlib import Path
 
 SERVER_HOST = "150.241.68.248"
@@ -70,18 +72,28 @@ def read_and_verify_public_key(info_path: Path) -> str:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--source", required=True, type=Path)
-    ap.add_argument("--server-info", required=True, type=Path)
+    ap.add_argument("--server-info", type=Path)
     args = ap.parse_args()
     root = args.source
-    key = read_and_verify_public_key(args.server_info)
+    info_path = args.server_info
+    if info_path is None:
+        url = f"http://{SERVER_HOST}:{SERVER_PORT}/owpengram/server-info"
+        with urllib.request.urlopen(url, timeout=25) as response:
+            server_info = response.read(1024 * 1024)
+        info_path = Path("/tmp/haslgram-build-server-info.json")
+        info_path.write_bytes(server_info)
+    key = read_and_verify_public_key(info_path)
+    ci_password = os.environ.get("HASLGRAM_CI_KEY_PASS")
+    if not ci_password or len(ci_password) < 16:
+        raise ValueError("HASLGRAM_CI_KEY_PASS must contain a random CI-only password")
 
     props_file = root / "gradle.properties"
     props = props_file.read_text(encoding="utf-8")
     for name, value in {
         "APP_PACKAGE": "com.haslgram.messenger",
-        "RELEASE_STORE_PASSWORD": "HaslGramDebug_123",
+        "RELEASE_STORE_PASSWORD": ci_password,
         "RELEASE_KEY_ALIAS": "haslgramdebug",
-        "RELEASE_KEY_PASSWORD": "HaslGramDebug_123",
+        "RELEASE_KEY_PASSWORD": ci_password,
         "org.gradle.jvmargs": "-Xmx3g -XX:MaxMetaspaceSize=768m",
         "org.gradle.parallel": "false",
     }.items():
