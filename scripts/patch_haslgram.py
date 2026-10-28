@@ -194,6 +194,12 @@ def main() -> None:
         'getPrefs().edit().putString(KEY_ACCOUNT_SERVER + accountNum, ID_OWPENGRAM).apply();',
         "enforce HaslGram server assignment",
     )
+    servers = once(
+        servers,
+        'return getPrefs().getString(KEY_ACCOUNT_SERVER + accountNum, null);',
+        'return ID_OWPENGRAM; // HaslGram accounts always use the pinned network.',
+        "ensure startup and new-account server binding",
+    )
     # Never allow a caller, deep link, or an older saved account to select an
     # alternate MTProto endpoint. Re-pin at the final Java -> native boundary.
     servers = once(
@@ -242,7 +248,52 @@ def main() -> None:
     )
     launch = once(launch, ': "OwpenGram";', ': "HaslGram";',
                   "deep link account label")
+    # Fresh installs and logged-out accounts go straight to registration.
+    # ApplicationLoader applies the fixed server to every ConnectionsManager
+    # during postInitApplication, so no chooser or Join is needed.
+    launch = once(
+        launch,
+        '''        // Resuming a mid-login flow - server already chosen, continue where we left off
+        if (LoginActivity.loadCurrentState(false, currentAccount).getInt("currentViewNum", 0) != 0) {
+            return new LoginActivity();
+        }
+        // Adding a second account - skip intro, show server picker directly
+        for (int a = 0; a < UserConfig.MAX_ACCOUNT_COUNT; a++) {
+            if (a != currentAccount && UserConfig.getInstance(a).isClientActivated()) {
+                return new ServerSelectFragment();
+            }
+        }
+        // Fresh install - show intro; server picker is triggered from "Start Messaging"
+        return new IntroActivity();''',
+        '''        // HaslGram has exactly one pinned network. Present registration
+        // immediately on a fresh install, never the upstream server chooser.
+        return new LoginActivity();''',
+        "skip intro and server selection on first run",
+    )
     launch_file.write_text(launch, encoding="utf-8")
+
+    intro_file = root / "TMessagesProj/src/main/java/org/telegram/ui/IntroActivity.java"
+    intro_java = intro_file.read_text(encoding="utf-8")
+    intro_java = once(
+        intro_java,
+        'presentFragment(new ServerSelectFragment());',
+        'presentFragment(new LoginActivity());',
+        "skip chooser from intro after logout",
+    )
+    intro_file.write_text(intro_java, encoding="utf-8")
+
+    # Adding an additional account should use the same pinned network.
+    profile_file = root / "TMessagesProj/src/main/java/org/telegram/ui/ProfileActivity.java"
+    profile = profile_file.read_text(encoding="utf-8")
+    profile = once(
+        profile,
+        'f.presentFragment(new ServerSelectFragment(freeAccount));',
+        '''org.telegram.owpengram.OwpengramServers.applyServerToAccount(
+                                    org.telegram.owpengram.OwpengramServers.owpengramServer(), freeAccount);
+                            f.presentFragment(new LoginActivity(freeAccount));''',
+        "skip chooser for additional accounts",
+    )
+    profile_file.write_text(profile, encoding="utf-8")
 
     # Avoid sending HaslGram users to an upstream Telegram update or store.
     vars_file = root / "TMessagesProj/src/main/java/org/telegram/messenger/BuildVars.java"
