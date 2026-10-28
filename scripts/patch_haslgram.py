@@ -239,6 +239,61 @@ def main() -> None:
     picker = once(picker, '"Official servers" : "Custom servers"',
                   '"HaslGram network" : "Custom servers"',
                   "rename server list section")
+    # Reuse the upstream Join handshake automatically, with no visible
+    # server cards or Join button. Opening LoginActivity directly skipped
+    # the vital config/reset/resume + connection-ready sequence.
+    picker = once(
+        picker,
+        '        fragmentView = frame;\n\n        listView = new RecyclerListView(context);',
+        '''        fragmentView = frame;
+
+        // Invisible HaslGram bootstrap, preserving the tested network handshake.
+        if (OwpengramServers.getServerForAccount(
+                loginAccount >= 0 ? loginAccount : currentAccount) != null) {
+            actionBar.setAddToContainer(false);
+            uiHandler.post(() -> {
+                if (!destroyed) {
+                    proceedJoin(OwpengramServers.owpengramServer());
+                }
+            });
+            return fragmentView;
+        }
+
+        listView = new RecyclerListView(context);''',
+        "automatically run Join handshake without showing picker",
+    )
+    picker = once(
+        picker,
+        '''        b.setTitle("Connection failed");
+        b.setMessage("Couldn't establish a connection to " + server.name + ". You can continue to the login screen and keep trying, or go back.");
+        b.setPositiveButton("Continue", (d, w) -> goToLogin(server, false));
+        b.setNegativeButton("Back", null);''',
+        '''        b.setTitle("Не удалось подключиться");
+        b.setMessage("Нет соединения с сервером HaslGram. Проверьте интернет и повторите попытку.");
+        b.setPositiveButton("Повторить", (d, w) -> proceedJoin(server));
+        b.setNegativeButton("Отмена", (d, w) -> finishFragment());''',
+        "replace infinite login fallback with actionable connection error",
+    )
+    # The server's pre-login app config RPC may also be unavailable.
+    # Fall back to the phone screen after 10s rather than leaving a blank screen.
+    picker = once(
+        picker,
+        '''        req.hash = 0;
+        ConnectionsManager.getInstance(account).sendRequest(req, (response, error) -> AndroidUtilities.runOnUIThread(() -> {''',
+        '''        req.hash = 0;
+        final boolean[] completed = { false };
+        final Runnable timeout = () -> {
+            if (destroyed || completed[0]) return;
+            completed[0] = true;
+            goToLogin(server, false);
+        };
+        uiHandler.postDelayed(timeout, 10000);
+        ConnectionsManager.getInstance(account).sendRequest(req, (response, error) -> AndroidUtilities.runOnUIThread(() -> {
+            if (destroyed || completed[0]) return;
+            completed[0] = true;
+            uiHandler.removeCallbacks(timeout);''',
+        "bound pre-login app configuration wait",
+    )
     picker_file.write_text(picker, encoding="utf-8")
 
     # An owpg://addserver link must not reopen server onboarding even when
@@ -253,9 +308,8 @@ def main() -> None:
     )
     launch = once(launch, ': "OwpenGram";', ': "HaslGram";',
                   "deep link account label")
-    # Fresh installs and logged-out accounts go straight to registration.
-    # ApplicationLoader applies the fixed server to every ConnectionsManager
-    # during postInitApplication, so no chooser or Join is needed.
+    # Fresh installs and logged-out accounts must establish the MTProto
+    # connection before registration, without exposing the server picker.
     launch = once(
         launch,
         '''        // Resuming a mid-login flow - server already chosen, continue where we left off
@@ -270,10 +324,10 @@ def main() -> None:
         }
         // Fresh install - show intro; server picker is triggered from "Start Messaging"
         return new IntroActivity();''',
-        '''        // HaslGram has exactly one pinned network. Present registration
-        // immediately on a fresh install, never the upstream server chooser.
-        return new LoginActivity();''',
-        "skip intro and server selection on first run",
+        '''        // HaslGram has exactly one pinned network. Connect invisibly,
+        // then open login only after the MTProto session is ready.
+        return new ServerSelectFragment();''',
+        "automatically bootstrap the network before login",
     )
     launch_file.write_text(launch, encoding="utf-8")
 
@@ -282,8 +336,8 @@ def main() -> None:
     intro_java = once(
         intro_java,
         'presentFragment(new ServerSelectFragment());',
-        'presentFragment(new LoginActivity());',
-        "skip chooser from intro after logout",
+        'presentFragment(new ServerSelectFragment());',
+        "silently bootstrap on intro/logout",
     )
     intro_file.write_text(intro_java, encoding="utf-8")
 
@@ -293,10 +347,8 @@ def main() -> None:
     profile = once(
         profile,
         'f.presentFragment(new ServerSelectFragment(freeAccount));',
-        '''org.telegram.owpengram.OwpengramServers.applyServerToAccount(
-                                    org.telegram.owpengram.OwpengramServers.owpengramServer(), freeAccount);
-                            f.presentFragment(new LoginActivity(freeAccount));''',
-        "skip chooser for additional accounts",
+        'f.presentFragment(new ServerSelectFragment(freeAccount));',
+        "silently bootstrap new account on HaslGram",
     )
     profile_file.write_text(profile, encoding="utf-8")
 
