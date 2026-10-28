@@ -141,6 +141,11 @@ def main() -> None:
         )
         if replacements != 1 and folder in ("values", "values-ru"):
             raise ValueError(f"Missing first onboarding title in {xml}")
+        # The balance belongs to HaslGram, not Telegram. Only change
+        # user-facing resource strings, never wire protocol currency XTR.
+        value = value.replace("Telegram Stars", "Hasl Stars")
+        value = value.replace("Звёзды Telegram", "Hasl Stars")
+        value = value.replace("Звезды Telegram", "Hasl Stars")
         if folder in intro:
             for index, copy in enumerate(intro[folder], 1):
                 key = f"Page{index}Message"
