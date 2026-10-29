@@ -164,6 +164,18 @@ def main() -> None:
                 lambda m: m.group(1) + m.group(2).replace("Telegram", "HaslGram") + m.group(3),
                 value,
             )
+        # Restore the four visible HaslGram commercial sections in settings.
+        # Keep resource IDs (TelegramPremium/TelegramBusiness) for compatibility,
+        # but replace only user-facing values; do NOT rename TL protocol types.
+        for resource_name, display in {
+            "TelegramPremium": "HaslGram Премиум" if folder == "values-ru" else "HaslGram Premium",
+            "TelegramBusiness": "HaslGram для бизнеса" if folder == "values-ru" else "HaslGram Business",
+        }.items():
+            value = re.sub(
+                rf'(<string name="{resource_name}">)[^<]*(</string>)',
+                lambda m, display=display: m.group(1) + display + m.group(2),
+                value,
+            )
         xml.write_text(value, encoding="utf-8")
 
     servers_file = root / "TMessagesProj/src/main/java/org/telegram/owpengram/OwpengramServers.java"
@@ -433,18 +445,10 @@ def main() -> None:
     )
     cpp_cm_file.write_text(cpp_cm, encoding="utf-8")
 
-    # HaslGram user-facing settings must not expose inherited Telegram / OwpenGram
-    # commercial menus, external repo links, or developer diagnostics.
+    # HaslGram user-facing settings must retain Premium/Stars/Business/Gifts
+    # while hiding unrelated TON, Telegram wallets, external links, and developer debug.
     settings_file = root / "TMessagesProj/src/main/java/org/telegram/ui/SettingsActivity.java"
     settings = settings_file.read_text(encoding="utf-8")
-    settings = once(
-        settings,
-        '''        if (serverPremium && !getMessagesController().premiumFeaturesBlocked()) {
-            items.add(SettingCell.Factory.of(11, 0xFFB659FF, 0xFF617CFF, R.drawable.settings_premium, getString(R.string.TelegramPremium)));
-        }
-''', '',
-        "remove incomplete upstream Telegram Premium purchase menu",
-    )
     settings = once(
         settings,
         '''        StarsController.getInstance(currentAccount, true).getBalance();
@@ -471,17 +475,6 @@ def main() -> None:
         }
 ''', '',
         "remove official external Telegram wallet entry",
-    )
-    settings = once(
-        settings,
-        '''        if (serverPremium && !getMessagesController().premiumFeaturesBlocked()) {
-            items.add(SettingCell.Factory.of(15, 0xFFF45255, 0xFFDF3955, R.drawable.settings_business, getString(R.string.TelegramBusiness)));
-        }
-        if (serverPremium && !getMessagesController().premiumPurchaseBlocked()) {
-            items.add(SettingCell.Factory.of(16, 0xFFF38B31, 0xFFE26314, R.drawable.settings_gift, getString(R.string.SendAGift)));
-        }
-''', '',
-        "hide unsupported business and gift purchasing screens",
     )
     settings = once(
         settings,
