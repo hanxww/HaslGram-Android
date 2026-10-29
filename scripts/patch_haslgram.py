@@ -406,15 +406,16 @@ def main() -> None:
         '''            if (item.instanceOf(GiftCell.Factory.class)) {
                 if (item.object instanceof GiftPremiumBottomSheet.GiftTier) {''',
         '''            if (item.instanceOf(GiftCell.Factory.class)) {
-                // Explicitly read-only: show original Telegram gifts but do
-                // not open unavailable purchases, transfers, or upgrades.
-                BulletinFactory.of(GiftSheet.this.container, GiftSheet.this.resourcesProvider)
-                    .createSimpleBulletin(R.raw.error,
-                        "Подарки HaslGram пока доступны только для просмотра")
-                    .show();
-                return;
-            }
-            if (false && item.instanceOf(GiftCell.Factory.class)) {
+                if (item.object instanceof GiftPremiumBottomSheet.GiftTier
+                    || item.object instanceof TL_stars.StarGift) {
+                    // Catalog only: purchases, transfers, and upgrades need
+                    // real atomic ledger-backed HaslGram RPCs.
+                    BulletinFactory.of(GiftSheet.this.container, GiftSheet.this.resourcesProvider)
+                        .createSimpleBulletin(R.raw.error,
+                            "Подарки HaslGram пока доступны только для просмотра")
+                        .show();
+                    return;
+                }
                 if (item.object instanceof GiftPremiumBottomSheet.GiftTier) {''',
         "block gift purchases in the catalog until ledger-backed RPCs exist",
     )
