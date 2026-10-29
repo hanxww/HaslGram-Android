@@ -82,7 +82,7 @@ def main() -> None:
             server_info = response.read(1024 * 1024)
         info_path = Path("/tmp/haslgram-build-server-info.json")
         info_path.write_bytes(server_info)
-    key = read_and_verify_public_key(info_path)
+    verified_public_key_pem = read_and_verify_public_key(info_path)
     ci_password = os.environ.get("HASLGRAM_CI_KEY_PASS")
     if not ci_password or len(ci_password) < 16:
         raise ValueError("HASLGRAM_CI_KEY_PASS must contain a random CI-only password")
@@ -109,6 +109,74 @@ def main() -> None:
             count += 1
     if count < 1:
         raise ValueError("No OwpenGram application strings were found")
+
+    # The original Russian introduction still said Telegram even when the
+    # app label was already changed. Do not rewrite license or source notices:
+    # these are strictly user-facing welcome-page strings.
+    intro = {
+        "values": [
+            "An independent messenger powered by our own network.",
+            "Messages, groups and files in one familiar app.",
+            "Connect with your community on HaslGram.",
+            "Sign in by phone and a one-time confirmation code.",
+            "More features are coming as we develop.",
+            "Hasl Stars, Premium and gifts are in development.",
+        ],
+        "values-ru": [
+            "Независимый мессенджер на собственной инфраструктуре.",
+            "Личные сообщения, группы и файлы в одном приложении.",
+            "Общайтесь с друзьями в сети HaslGram.",
+            "Вход по номеру телефона и одноразовому коду.",
+            "Новые возможности появляются постепенно.",
+            "Hasl Stars, Premium и подарки находятся в разработке.",
+        ],
+    }
+    for xml in strings_dir.glob("values*/strings.xml"):
+        value = xml.read_text(encoding="utf-8")
+        folder = xml.parent.name
+        value, replacements = re.subn(
+            r'(<string name="Page1Title">)[^<]*(</string>)',
+            lambda m: m.group(1) + "HaslGram" + m.group(2),
+            value,
+        )
+        if replacements != 1 and folder in ("values", "values-ru"):
+            raise ValueError(f"Missing first onboarding title in {xml}")
+        # The balance belongs to HaslGram, not Telegram. Only change
+        # user-facing resource strings, never wire protocol currency XTR.
+        value = value.replace("Telegram Stars", "Hasl Stars")
+        value = value.replace("Звёзды Telegram", "Hasl Stars")
+        value = value.replace("Звезды Telegram", "Hasl Stars")
+        if folder in intro:
+            for index, copy in enumerate(intro[folder], 1):
+                resource_name = f"Page{index}Message"
+                value, changed = re.subn(
+                    rf'(<string name="{resource_name}">)[^<]*(</string>)',
+                    lambda m, copy=copy: m.group(1) + copy + m.group(2),
+                    value,
+                )
+                if changed != 1:
+                    raise ValueError(f"Missing {resource_name} in {xml}")
+        else:
+            # Preserve other languages while removing Telegram as the name
+            # of our app from the six intro-page descriptions.
+            value = re.sub(
+                r'(<string name="Page[1-6]Message">)([^<]*)(</string>)',
+                lambda m: m.group(1) + m.group(2).replace("Telegram", "HaslGram") + m.group(3),
+                value,
+            )
+        # Restore the four visible HaslGram commercial sections in settings.
+        # Keep resource IDs (TelegramPremium/TelegramBusiness) for compatibility,
+        # but replace only user-facing values; do NOT rename TL protocol types.
+        for resource_name, display in {
+            "TelegramPremium": "HaslGram Премиум" if folder == "values-ru" else "HaslGram Premium",
+            "TelegramBusiness": "HaslGram для бизнеса" if folder == "values-ru" else "HaslGram Business",
+        }.items():
+            value = re.sub(
+                rf'(<string name="{resource_name}">)[^<]*(</string>)',
+                lambda m, display=display: m.group(1) + display + m.group(2),
+                value,
+            )
+        xml.write_text(value, encoding="utf-8")
 
     servers_file = root / "TMessagesProj/src/main/java/org/telegram/owpengram/OwpengramServers.java"
     servers = servers_file.read_text(encoding="utf-8")
@@ -143,6 +211,21 @@ def main() -> None:
         'getPrefs().edit().putString(KEY_ACCOUNT_SERVER + accountNum, ID_OWPENGRAM).apply();',
         "enforce HaslGram server assignment",
     )
+    servers = once(
+        servers,
+        'return getPrefs().getString(KEY_ACCOUNT_SERVER + accountNum, null);',
+        'return ID_OWPENGRAM; // HaslGram accounts always use the pinned network.',
+        "ensure startup and new-account server binding",
+    )
+    # Never allow a caller, deep link, or an older saved account to select an
+    # alternate MTProto endpoint. Re-pin at the final Java -> native boundary.
+    servers = once(
+        servers,
+        'if (server == null) return;',
+        'server = owpengramServer(); // HaslGram-only: enforce pinned config at native boundary.',
+        "enforce endpoint at native configuration boundary",
+    )
+
     oldkey = re.search(
         r'    static final String OWPENGRAM_RSA_KEY =\s*.*?;\n'
         r'    // fingerprint == 0',
@@ -152,12 +235,14 @@ def main() -> None:
         raise ValueError("Could not find original RSA key constant")
     newkey = (
         '    static final String OWPENGRAM_RSA_KEY = '
-        + json.dumps(key)
+        + json.dumps(verified_public_key_pem)
         + ';\n    // fingerprint == 0'
     )
     servers = servers[:oldkey.start()] + newkey + servers[oldkey.end():]
+    # The Android APK must use the verified PEM, not a UI resource name.
+    if json.dumps(verified_public_key_pem) not in servers:
+        raise ValueError('HaslGram RSA public key missing in patched Java')
     servers_file.write_text(servers, encoding="utf-8")
-
     picker_file = root / "TMessagesProj/src/main/java/org/telegram/ui/ServerSelectFragment.java"
     picker = picker_file.read_text(encoding="utf-8")
     picker = once(picker, 'rows.add("add");\n', '', "hide add-server button")
@@ -165,7 +250,299 @@ def main() -> None:
                   'actionBar.setTitle("HaslGram");', "picker title")
     picker = once(picker, 'actionBar.setSubtitle("Pick where to sign in");',
                   'actionBar.setSubtitle("Connect to the HaslGram network");', "picker subtitle")
+    picker = once(picker, '"Official servers" : "Custom servers"',
+                  '"HaslGram network" : "Custom servers"',
+                  "rename server list section")
+    # Reuse the upstream Join handshake automatically, with no visible
+    # server cards or Join button. Opening LoginActivity directly skipped
+    # the vital config/reset/resume + connection-ready sequence.
+    picker = once(
+        picker,
+        '        fragmentView = frame;\n\n        listView = new RecyclerListView(context);',
+        '''        fragmentView = frame;
+
+        // Invisible HaslGram bootstrap, preserving the tested network handshake.
+        if (OwpengramServers.getServerForAccount(
+                loginAccount >= 0 ? loginAccount : currentAccount) != null) {
+            actionBar.setAddToContainer(false);
+            uiHandler.post(() -> {
+                if (!destroyed) {
+                    proceedJoin(OwpengramServers.owpengramServer());
+                }
+            });
+            return fragmentView;
+        }
+
+        listView = new RecyclerListView(context);''',
+        "automatically run Join handshake without showing picker",
+    )
+    picker = once(
+        picker,
+        '''        b.setTitle("Connection failed");
+        b.setMessage("Couldn't establish a connection to " + server.name + ". You can continue to the login screen and keep trying, or go back.");
+        b.setPositiveButton("Continue", (d, w) -> goToLogin(server, false));
+        b.setNegativeButton("Back", null);''',
+        '''        b.setTitle("Не удалось подключиться");
+        b.setMessage("Нет соединения с сервером HaslGram. Проверьте интернет и повторите попытку.");
+        b.setPositiveButton("Повторить", (d, w) -> proceedJoin(server));
+        b.setNegativeButton("Отмена", (d, w) -> finishFragment());''',
+        "replace infinite login fallback with actionable connection error",
+    )
+    # The server's pre-login app config RPC may also be unavailable.
+    # Fall back to the phone screen after 10s rather than leaving a blank screen.
+    picker = once(
+        picker,
+        '''        req.hash = 0;
+        ConnectionsManager.getInstance(account).sendRequest(req, (response, error) -> AndroidUtilities.runOnUIThread(() -> {''',
+        '''        req.hash = 0;
+        final boolean[] completed = { false };
+        final Runnable timeout = () -> {
+            if (destroyed || completed[0]) return;
+            completed[0] = true;
+            goToLogin(server, false);
+        };
+        uiHandler.postDelayed(timeout, 10000);
+        ConnectionsManager.getInstance(account).sendRequest(req, (response, error) -> AndroidUtilities.runOnUIThread(() -> {
+            if (destroyed || completed[0]) return;
+            completed[0] = true;
+            uiHandler.removeCallbacks(timeout);''',
+        "bound pre-login app configuration wait",
+    )
     picker_file.write_text(picker, encoding="utf-8")
+
+    # An owpg://addserver link must not reopen server onboarding even when
+    # the server picker no longer contains the Add Server row.
+    launch_file = root / "TMessagesProj/src/main/java/org/telegram/ui/LaunchActivity.java"
+    launch = launch_file.read_text(encoding="utf-8")
+    launch = once(
+        launch,
+        "handleOwpengramAddServerLink(data);",
+        "/* HaslGram-only: external server enrollment is disabled. */",
+        "disable add-server deep links",
+    )
+    launch = once(launch, ': "OwpenGram";', ': "HaslGram";',
+                  "deep link account label")
+    # Fresh installs and logged-out accounts must establish the MTProto
+    # connection before registration, without exposing the server picker.
+    launch = once(
+        launch,
+        '''        // Resuming a mid-login flow - server already chosen, continue where we left off
+        if (LoginActivity.loadCurrentState(false, currentAccount).getInt("currentViewNum", 0) != 0) {
+            return new LoginActivity();
+        }
+        // Adding a second account - skip intro, show server picker directly
+        for (int a = 0; a < UserConfig.MAX_ACCOUNT_COUNT; a++) {
+            if (a != currentAccount && UserConfig.getInstance(a).isClientActivated()) {
+                return new ServerSelectFragment();
+            }
+        }
+        // Fresh install - show intro; server picker is triggered from "Start Messaging"
+        return new IntroActivity();''',
+        '''        // HaslGram has exactly one pinned network. Connect invisibly,
+        // then open login only after the MTProto session is ready.
+        return new ServerSelectFragment();''',
+        "automatically bootstrap the network before login",
+    )
+    launch_file.write_text(launch, encoding="utf-8")
+
+    intro_file = root / "TMessagesProj/src/main/java/org/telegram/ui/IntroActivity.java"
+    intro_java = intro_file.read_text(encoding="utf-8")
+    intro_java = once(
+        intro_java,
+        'presentFragment(new ServerSelectFragment());',
+        'presentFragment(new ServerSelectFragment());',
+        "silently bootstrap on intro/logout",
+    )
+    intro_file.write_text(intro_java, encoding="utf-8")
+
+    # Adding an additional account should use the same pinned network.
+    profile_file = root / "TMessagesProj/src/main/java/org/telegram/ui/ProfileActivity.java"
+    profile = profile_file.read_text(encoding="utf-8")
+    profile = once(
+        profile,
+        'f.presentFragment(new ServerSelectFragment(freeAccount));',
+        'f.presentFragment(new ServerSelectFragment(freeAccount));',
+        "silently bootstrap new account on HaslGram",
+    )
+    profile_file.write_text(profile, encoding="utf-8")
+
+    # Do not expose the Telegram test backend checkbox on HaslGram.
+    # It calls switchBackend(false), changing DCs without re-pinning MTProto.
+    login_file = root / "TMessagesProj/src/main/java/org/telegram/ui/LoginActivity.java"
+    login = login_file.read_text(encoding="utf-8")
+    login = once(
+        login,
+        "final boolean allowTestBackend = (BuildVars.DEBUG_VERSION || TEST_BACKEND_IN_STORE && !BuildConfig.BUNDLE) || getConnectionsManager().isTestBackend();",
+        "final boolean allowTestBackend = false; // HaslGram uses only its production server.",
+        "hide Telegram test backend option",
+    )
+    login_file.write_text(login, encoding="utf-8")
+
+    # Block test-backend switching even if another UI tries to invoke it.
+    java_cm_file = root / "TMessagesProj/src/main/java/org/telegram/tgnet/ConnectionsManager.java"
+    java_cm = java_cm_file.read_text(encoding="utf-8")
+    java_cm = once(
+        java_cm,
+        '''    public void switchBackend(boolean restart) {
+        SharedPreferences preferences = MessagesController.getGlobalMainSettings();
+        preferences.edit().remove("language_showed2").commit();
+        native_switchBackend(currentAccount, restart);
+    }''',
+        '''    public void switchBackend(boolean restart) {
+        // HaslGram: Telegram test endpoints must never be selected.
+        // This intentionally does nothing.
+    }''',
+        "block legacy test backend toggle",
+    )
+    java_cm_file.write_text(java_cm, encoding="utf-8")
+
+    # Migrate users who checked Test backend in an older test APK.
+    # The testBackend flag persists in tgnet.dat, including across app restarts.
+    # Restoring the pinned server must normalize this mode and invalidate
+    # any stale test-network auth keys before the MTProto handshake.
+    cpp_cm_file = root / "TMessagesProj/jni/tgnet/ConnectionsManager.cpp"
+    cpp_cm = cpp_cm_file.read_text(encoding="utf-8")
+    cpp_cm = once(
+        cpp_cm,
+        '''    scheduleTask([&, host, port, isTelegram, mainDcId, pemKey, fingerprint, resetKeys] {
+        // 1. Per-instance RSA key.''',
+        '''    scheduleTask([&, host, port, isTelegram, mainDcId, pemKey, fingerprint, resetKeys] {
+        const bool wasTestBackend = !isTelegram && testBackend;
+        if (!isTelegram) {
+            testBackend = false; // HaslGram always uses the normal DC2.
+        }
+        // 1. Per-instance RSA key.''',
+        "repair persisted testBackend during server bootstrap",
+    )
+    cpp_cm = once(
+        cpp_cm,
+        '''                dc->suspendConnections(true);
+                if (resetKeys) {
+                    dc->clearAuthKey(HandshakeTypeAll);
+                }
+                dc->replaceAddresses(addrs, 0);          // regular ipv4''',
+        '''                dc->suspendConnections(true);
+                if (resetKeys || wasTestBackend) {
+                    dc->clearAuthKey(HandshakeTypeAll);
+                    if (wasTestBackend) {
+                        dc->clearServerSalts(false);
+                        dc->clearServerSalts(true);
+                    }
+                }
+                dc->replaceAddresses(addrs, 0);          // regular ipv4''',
+        "migrate stale test-mode auth keys",
+    )
+    cpp_cm = once(
+        cpp_cm,
+        '''void ConnectionsManager::switchBackend(bool restart) {
+    scheduleTask([&, restart] {
+        currentDatacenterId = 1;''',
+        '''void ConnectionsManager::switchBackend(bool restart) {
+    scheduleTask([&, restart] {
+        if (serverOptionsLocked) return; // HaslGram-only: never switch backends.
+        currentDatacenterId = 1;''',
+        "block native backend switch on pinned server",
+    )
+    cpp_cm_file.write_text(cpp_cm, encoding="utf-8")
+
+    # HaslGram user-facing settings must retain Premium/Stars/Business/Gifts
+    # while hiding unrelated TON, Telegram wallets, external links, and developer debug.
+    settings_file = root / "TMessagesProj/src/main/java/org/telegram/ui/SettingsActivity.java"
+    settings = settings_file.read_text(encoding="utf-8")
+    settings = once(
+        settings,
+        '''        StarsController.getInstance(currentAccount, true).getBalance();
+        if (serverPremium && (ApplicationLoader.isBetaBuild() || ApplicationLoader.isStandaloneBuild() || ApplicationLoader.isHuaweiStoreBuild() || (StarsController.getInstance(currentAccount, true).balanceAvailable() && (StarsController.getInstance(currentAccount, true).hasTransactions() || StarsController.getInstance(currentAccount, true).getBalance().positive())))) {
+            StarsController c = StarsController.getTonInstance(currentAccount);
+            long balance = c.getBalance().amount;
+            items.add(SettingCell.Factory.of(13, 0xFF1BA4ED, 0xFF1488E1, R.drawable.settings_gram_24, getString(R.string.MyTON), null, c.balanceAvailable() && balance > 0 ? StarsIntroActivity.formatStarsAmount(c.getBalance(), 0.85f, ' ') : ""));
+        }
+''', '',
+        "remove unsupported My TON wallet entry",
+    )
+    settings = once(
+        settings,
+        '''        TLRPC.TL_attachMenuBots menuBots = MediaDataController.getInstance(UserConfig.selectedAccount).getAttachMenuBots();
+        if (menuBots != null && menuBots.bots != null && !menuBots.bots.isEmpty()) {
+            for (TLRPC.TL_attachMenuBot attachMenuBot : menuBots.bots) {
+                final long WALLET_BOT_ID = 1985737506L;
+                if (attachMenuBot.show_in_side_menu && attachMenuBot.bot_id == WALLET_BOT_ID) {
+                    UItem item = SettingCell.Factory.ofBot(attachMenuBot, 0xFF1BA4ED, 0xFF1488E1, R.drawable.settings_wallet);
+                    item.object = attachMenuBot;
+                    items.add(item);
+                }
+            }
+        }
+''', '',
+        "remove official external Telegram wallet entry",
+    )
+    settings = once(
+        settings,
+        '''        items.add(UItem.asHeader(getString(R.string.SettingsHelp)));
+''', '',
+        "hide empty Help section",
+    )
+    settings = once(
+        settings,
+        '''        items.add(SettingCell.Factory.of(30, 0xFF6E7B86, 0xFF55606A, R.drawable.github_logo, "OwpenGram"));
+''', '',
+        "remove OwpenGram source link from user settings",
+    )
+    settings = once(
+        settings,
+        '''        if (BuildVars.LOGS_ENABLED || BuildVars.DEBUG_PRIVATE_VERSION) {
+            items.add(UItem.asShadow(null));
+            items.add(UItem.asHeader(getString(R.string.SettingsDebug)));
+            items.add(SettingCell.Factory.of(20, 0xFF55CA47, 0xFF27B434, 0, getString(R.string.DebugSendLogs)));
+            items.add(SettingCell.Factory.of(21, 0xFF55CA47, 0xFF27B434, 0, getString(R.string.DebugSendLastLogs)));
+            items.add(SettingCell.Factory.of(22, 0xFFF45255, 0xFFDF3955, 0, getString(R.string.DebugClearLogs)));
+        }
+''', '',
+        "hide developer debugging menu from all user builds",
+    )
+    settings = once(
+        settings,
+        '''            versionName += "_O7";
+
+            return "OwpenGram " + String.format(Locale.US, "v%s (%d)\\n%s", versionName, code, abi);''',
+        '''            return "HaslGram " + String.format(Locale.US, "v%s (%d)\\n%s", versionName, code, abi);''',
+        "brand version footer as HaslGram",
+    )
+    settings_file.write_text(settings, encoding="utf-8")
+
+    # HaslGram starts in Russian regardless of the phone language. Respect any
+    # language selected later by the user. The upstream MTProto server currently
+    # does not provide a complete HaslGram language pack, so prefer APK
+    # resources over missing/stale cloud strings.
+    locale_file = root / "TMessagesProj/src/main/java/org/telegram/messenger/LocaleController.java"
+    locale_java = locale_file.read_text(encoding="utf-8")
+    locale_java = once(
+        locale_java,
+        '            String lang = preferences.getString("language", null);',
+        '''            String lang = preferences.getString("language", null);
+            if (lang == null) {
+                // HaslGram default on first launch; user overrides are retained.
+                lang = "ru";
+                preferences.edit().putString("language", lang).commit();
+            }''',
+        "default HaslGram language to Russian",
+    )
+    locale_file.write_text(locale_java, encoding="utf-8")
+
+    # Avoid sending HaslGram users to an upstream Telegram update or store.
+    vars_file = root / "TMessagesProj/src/main/java/org/telegram/messenger/BuildVars.java"
+    vars = vars_file.read_text(encoding="utf-8")
+    vars = once(vars, "public static boolean CHECK_UPDATES = true;",
+                "public static boolean CHECK_UPDATES = false;",
+                "disable upstream updates")
+    vars = once(vars,
+                'public static String PLAYSTORE_APP_URL = "https://play.google.com/store/apps/details?id=org.telegram.messenger";',
+                'public static String PLAYSTORE_APP_URL = "https://haslgram.site";',
+                "use HaslGram website")
+    vars = once(vars, "public static boolean USE_CLOUD_STRINGS = true;",
+                "public static boolean USE_CLOUD_STRINGS = false; // HaslGram uses bundled locale resources.",
+                "prefer bundled Russian translations until Core language packs are integrated")
+    vars_file.write_text(vars, encoding="utf-8")
 
     app_gradle = root / "TMessagesProj_AppStandalone/build.gradle"
     ag = app_gradle.read_text(encoding="utf-8")
