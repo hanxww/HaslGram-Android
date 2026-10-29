@@ -2,7 +2,7 @@ name: HaslGram Android APK
 
 on:
   push:
-    branches: [main]
+    branches: [main, feature/gifts-catalog-visible-readonly-v01]
     paths:
       - '.github/workflows/android-apk.yml'
       - 'scripts/patch_haslgram.py'
@@ -81,6 +81,16 @@ jobs:
       - name: Apply HaslGram changes and validate server identity
         run: |
           python3 haslgram/scripts/patch_haslgram.py --source android-source
+
+      - name: Verify HaslGram read-only gifts routing in patched upstream
+        run: |
+          set -euo pipefail
+          python3 -m py_compile haslgram/scripts/patch_haslgram.py
+          grep -q 'new GiftSheet(context, currentAccount,' android-source/TMessagesProj/src/main/java/org/telegram/ui/Stars/StarsIntroActivity.java
+          grep -q 'giftButton.setVisibility(View.VISIBLE)' android-source/TMessagesProj/src/main/java/org/telegram/ui/Stars/StarsIntroActivity.java
+          grep -q 'Подарки HaslGram пока доступны только для просмотра' android-source/TMessagesProj/src/main/java/org/telegram/ui/Gifts/GiftSheet.java
+          grep -q 'HaslGramGiftCatalogPreview' android-source/TMessagesProj/src/main/res/values/strings.xml
+          grep -q 'HaslGramGiftCatalogPreview' android-source/TMessagesProj/src/main/res/values-ru/strings.xml
 
       - name: Generate HaslGram icons and splash art
         run: |
