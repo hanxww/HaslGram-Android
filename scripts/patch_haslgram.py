@@ -379,13 +379,18 @@ def main() -> None:
     )
     stars_intro = once(
         stars_intro,
-        '''            StarsController.getInstance(currentAccount).getGiftOptions();
-            UserSelectorBottomSheet.open(UserSelectorBottomSheet.TYPE_STARS, 0, BirthdayController.getInstance(currentAccount).getState());''',
-        '''            // HaslGram's own 11 genuine gift assets are served by
-            // payments.getStarGifts, not by the Stars topup/gift-options flow.
+        '''        giftButton.setOnClickListener(v -> {
+            StarsController.getInstance(currentAccount).getGiftOptions();
+            UserSelectorBottomSheet.open(UserSelectorBottomSheet.TYPE_STARS, 0, BirthdayController.getInstance(currentAccount).getState());
+        });''',
+        '''        giftButton.setOnClickListener(v -> {
+            // HaslGram authentic gifts are read from payments.getStarGifts.
+            // Ignore a previous cached empty catalog after server activation.
+            StarsController.getInstance(currentAccount).invalidateStarGifts();
             new GiftSheet(context, currentAccount,
                 UserConfig.getInstance(currentAccount).getClientUserId(),
-                null).show();''',
+                null).show();
+        });''',
         "open the actual MTProto star gifts catalog",
     )
     stars_intro = once(
