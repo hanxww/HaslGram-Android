@@ -433,6 +433,90 @@ def main() -> None:
     )
     cpp_cm_file.write_text(cpp_cm, encoding="utf-8")
 
+    # HaslGram user-facing settings must not expose inherited Telegram / OwpenGram
+    # commercial menus, external repo links, or developer diagnostics.
+    settings_file = root / "TMessagesProj/src/main/java/org/telegram/ui/SettingsActivity.java"
+    settings = settings_file.read_text(encoding="utf-8")
+    settings = once(
+        settings,
+        '''        if (serverPremium && !getMessagesController().premiumFeaturesBlocked()) {
+            items.add(SettingCell.Factory.of(11, 0xFFB659FF, 0xFF617CFF, R.drawable.settings_premium, getString(R.string.TelegramPremium)));
+        }
+''', '',
+        "remove incomplete upstream Telegram Premium purchase menu",
+    )
+    settings = once(
+        settings,
+        '''        StarsController.getInstance(currentAccount, true).getBalance();
+        if (serverPremium && (ApplicationLoader.isBetaBuild() || ApplicationLoader.isStandaloneBuild() || ApplicationLoader.isHuaweiStoreBuild() || (StarsController.getInstance(currentAccount, true).balanceAvailable() && (StarsController.getInstance(currentAccount, true).hasTransactions() || StarsController.getInstance(currentAccount, true).getBalance().positive())))) {
+            StarsController c = StarsController.getTonInstance(currentAccount);
+            long balance = c.getBalance().amount;
+            items.add(SettingCell.Factory.of(13, 0xFF1BA4ED, 0xFF1488E1, R.drawable.settings_gram_24, getString(R.string.MyTON), null, c.balanceAvailable() && balance > 0 ? StarsIntroActivity.formatStarsAmount(c.getBalance(), 0.85f, ' ') : ""));
+        }
+''', '',
+        "remove unsupported My TON wallet entry",
+    )
+    settings = once(
+        settings,
+        '''        TLRPC.TL_attachMenuBots menuBots = MediaDataController.getInstance(UserConfig.selectedAccount).getAttachMenuBots();
+        if (menuBots != null && menuBots.bots != null && !menuBots.bots.isEmpty()) {
+            for (TLRPC.TL_attachMenuBot attachMenuBot : menuBots.bots) {
+                final long WALLET_BOT_ID = 1985737506L;
+                if (attachMenuBot.show_in_side_menu && attachMenuBot.bot_id == WALLET_BOT_ID) {
+                    UItem item = SettingCell.Factory.ofBot(attachMenuBot, 0xFF1BA4ED, 0xFF1488E1, R.drawable.settings_wallet);
+                    item.object = attachMenuBot;
+                    items.add(item);
+                }
+            }
+        }
+''', '',
+        "remove official external Telegram wallet entry",
+    )
+    settings = once(
+        settings,
+        '''        if (serverPremium && !getMessagesController().premiumFeaturesBlocked()) {
+            items.add(SettingCell.Factory.of(15, 0xFFF45255, 0xFFDF3955, R.drawable.settings_business, getString(R.string.TelegramBusiness)));
+        }
+        if (serverPremium && !getMessagesController().premiumPurchaseBlocked()) {
+            items.add(SettingCell.Factory.of(16, 0xFFF38B31, 0xFFE26314, R.drawable.settings_gift, getString(R.string.SendAGift)));
+        }
+''', '',
+        "hide unsupported business and gift purchasing screens",
+    )
+    settings = once(
+        settings,
+        '''        items.add(UItem.asHeader(getString(R.string.SettingsHelp)));
+''', '',
+        "hide empty Help section",
+    )
+    settings = once(
+        settings,
+        '''        items.add(SettingCell.Factory.of(30, 0xFF6E7B86, 0xFF55606A, R.drawable.github_logo, "OwpenGram"));
+''', '',
+        "remove OwpenGram source link from user settings",
+    )
+    settings = once(
+        settings,
+        '''        if (BuildVars.LOGS_ENABLED || BuildVars.DEBUG_PRIVATE_VERSION) {
+            items.add(UItem.asShadow(null));
+            items.add(UItem.asHeader(getString(R.string.SettingsDebug)));
+            items.add(SettingCell.Factory.of(20, 0xFF55CA47, 0xFF27B434, 0, getString(R.string.DebugSendLogs)));
+            items.add(SettingCell.Factory.of(21, 0xFF55CA47, 0xFF27B434, 0, getString(R.string.DebugSendLastLogs)));
+            items.add(SettingCell.Factory.of(22, 0xFFF45255, 0xFFDF3955, 0, getString(R.string.DebugClearLogs)));
+        }
+''', '',
+        "hide developer debugging menu from all user builds",
+    )
+    settings = once(
+        settings,
+        '''            versionName += "_O7";
+
+            return "OwpenGram " + String.format(Locale.US, "v%s (%d)\\n%s", versionName, code, abi);''',
+        '''            return "HaslGram " + String.format(Locale.US, "v%s (%d)\\n%s", versionName, code, abi);''',
+        "brand version footer as HaslGram",
+    )
+    settings_file.write_text(settings, encoding="utf-8")
+
     # Avoid sending HaslGram users to an upstream Telegram update or store.
     vars_file = root / "TMessagesProj/src/main/java/org/telegram/messenger/BuildVars.java"
     vars = vars_file.read_text(encoding="utf-8")
