@@ -364,6 +364,19 @@ def main() -> None:
         'f.presentFragment(new ServerSelectFragment(freeAccount));',
         "silently bootstrap new account on HaslGram",
     )
+    # The Hasl Stars page was hidden unless the Telegram store allowed
+    # buying Stars. HaslGram has its own verified, read-only Economy ledger
+    # and must not depend on Telegram's store availability.
+    profile = once(
+        profile,
+        '''                if (serverPremium && getMessagesController().starsPurchaseAvailable()) {
+                    starsRow = rowCount++;
+                }''',
+        '''                // Always expose the independent Hasl Stars balance page.
+                // Purchases remain disabled by the HaslGram server.
+                starsRow = rowCount++;''',
+        "show Hasl Stars entry regardless of Telegram store purchase flags",
+    )
     profile_file.write_text(profile, encoding="utf-8")
 
     # Keep the user-visible gift catalog reachable even when the upstream
