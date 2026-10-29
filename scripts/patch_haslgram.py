@@ -366,6 +366,76 @@ def main() -> None:
     )
     profile_file.write_text(profile, encoding="utf-8")
 
+    # Keep the user-visible gift catalog reachable even when the upstream
+    # Telegram appConfig turns off Stars gift purchases on an independent
+    # network. This is a READ-ONLY preview; no purchase handlers are enabled.
+    stars_intro_path = root / "TMessagesProj/src/main/java/org/telegram/ui/Stars/StarsIntroActivity.java"
+    stars_intro = stars_intro_path.read_text(encoding="utf-8")
+    stars_intro = once(
+        stars_intro,
+        'sb2.append(LocaleController.getString(R.string.TelegramStarsGift));',
+        'sb2.append(getString(R.string.HaslGramGiftCatalogPreview));',
+        "show accurate read-only gift catalog label",
+    )
+    stars_intro = once(
+        stars_intro,
+        '''            StarsController.getInstance(currentAccount).getGiftOptions();
+            UserSelectorBottomSheet.open(UserSelectorBottomSheet.TYPE_STARS, 0, BirthdayController.getInstance(currentAccount).getState());''',
+        '''            // HaslGram's own 11 genuine gift assets are served by
+            // payments.getStarGifts, not by the Stars topup/gift-options flow.
+            new GiftSheet(context, currentAccount,
+                UserConfig.getInstance(currentAccount).getClientUserId(),
+                null).show();''',
+        "open the actual MTProto star gifts catalog",
+    )
+    stars_intro = once(
+        stars_intro,
+        'giftButton.setVisibility(getMessagesController().starsGiftsEnabled ? View.VISIBLE : View.GONE);',
+        'giftButton.setVisibility(View.VISIBLE); // HaslGram read-only catalog does not depend on Telegram purchase flags.',
+        "keep catalog entry visible independently of paid feature flags",
+    )
+    stars_intro_path.write_text(stars_intro, encoding="utf-8")
+
+    # Until HaslGram implements genuine atomic purchase and upgrade flows,
+    # never let a user tap a real gift and enter a broken payment flow. The
+    # underlying Telegram gift catalogue is still shown with original TGS.
+    gift_sheet_path = root / "TMessagesProj/src/main/java/org/telegram/ui/Gifts/GiftSheet.java"
+    gift_sheet = gift_sheet_path.read_text(encoding="utf-8")
+    gift_sheet = once(
+        gift_sheet,
+        '''            if (item.instanceOf(GiftCell.Factory.class)) {
+                if (item.object instanceof GiftPremiumBottomSheet.GiftTier) {''',
+        '''            if (item.instanceOf(GiftCell.Factory.class)) {
+                // Explicitly read-only: show original Telegram gifts but do
+                // not open unavailable purchases, transfers, or upgrades.
+                BulletinFactory.of(GiftSheet.this.container, GiftSheet.this.resourcesProvider)
+                    .createSimpleBulletin(R.raw.error,
+                        "Подарки HaslGram пока доступны только для просмотра")
+                    .show();
+                return;
+            }
+            if (false && item.instanceOf(GiftCell.Factory.class)) {
+                if (item.object instanceof GiftPremiumBottomSheet.GiftTier) {''',
+        "block gift purchases in the catalog until ledger-backed RPCs exist",
+    )
+    gift_sheet_path.write_text(gift_sheet, encoding="utf-8")
+
+    # A real, localized label instead of implying Telegram Stars purchases
+    # are already enabled. Preserve every other existing Android resource.
+    for locale_dir, preview_label in (
+        ("values", "Gifts · view only"),
+        ("values-ru", "Подарки · просмотр"),
+    ):
+        strings_path = root / "TMessagesProj/src/main/res" / locale_dir / "strings.xml"
+        strings = strings_path.read_text(encoding="utf-8")
+        strings = once(
+            strings,
+            "</resources>",
+            '    <string name="HaslGramGiftCatalogPreview">' + preview_label + '</string>\n</resources>',
+            "add localized read-only gift catalog resource for " + locale_dir,
+        )
+        strings_path.write_text(strings, encoding="utf-8")
+
     # Do not expose the Telegram test backend checkbox on HaslGram.
     # It calls switchBackend(false), changing DCs without re-pinning MTProto.
     login_file = root / "TMessagesProj/src/main/java/org/telegram/ui/LoginActivity.java"
