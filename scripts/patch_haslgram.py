@@ -510,6 +510,25 @@ def main() -> None:
     )
     settings_file.write_text(settings, encoding="utf-8")
 
+    # HaslGram starts in Russian regardless of the phone language. Respect any
+    # language selected later by the user. The upstream MTProto server currently
+    # does not provide a complete HaslGram language pack, so prefer APK
+    # resources over missing/stale cloud strings.
+    locale_file = root / "TMessagesProj/src/main/java/org/telegram/messenger/LocaleController.java"
+    locale_java = locale_file.read_text(encoding="utf-8")
+    locale_java = once(
+        locale_java,
+        '            String lang = preferences.getString("language", null);',
+        '''            String lang = preferences.getString("language", null);
+            if (lang == null) {
+                // HaslGram default on first launch; user overrides are retained.
+                lang = "ru";
+                preferences.edit().putString("language", lang).commit();
+            }''',
+        "default HaslGram language to Russian",
+    )
+    locale_file.write_text(locale_java, encoding="utf-8")
+
     # Avoid sending HaslGram users to an upstream Telegram update or store.
     vars_file = root / "TMessagesProj/src/main/java/org/telegram/messenger/BuildVars.java"
     vars = vars_file.read_text(encoding="utf-8")
@@ -520,6 +539,9 @@ def main() -> None:
                 'public static String PLAYSTORE_APP_URL = "https://play.google.com/store/apps/details?id=org.telegram.messenger";',
                 'public static String PLAYSTORE_APP_URL = "https://haslgram.site";',
                 "use HaslGram website")
+    vars = once(vars, "public static boolean USE_CLOUD_STRINGS = true;",
+                "public static boolean USE_CLOUD_STRINGS = false; // HaslGram uses bundled locale resources.",
+                "prefer bundled Russian translations until Core language packs are integrated")
     vars_file.write_text(vars, encoding="utf-8")
 
     app_gradle = root / "TMessagesProj_AppStandalone/build.gradle"
