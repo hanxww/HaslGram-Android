@@ -90,7 +90,7 @@ def main() -> None:
     props_file = root / "gradle.properties"
     props = props_file.read_text(encoding="utf-8")
     for name, value in {
-        "APP_PACKAGE": "com.haslgram.messenger",
+        "APP_PACKAGE": "com.haslgram.gifts.preview",
         "RELEASE_STORE_PASSWORD": ci_password,
         "RELEASE_KEY_ALIAS": "haslgramdebug",
         "RELEASE_KEY_PASSWORD": ci_password,
@@ -105,7 +105,14 @@ def main() -> None:
     for xml in strings_dir.glob("values*/strings.xml"):
         value = xml.read_text(encoding="utf-8")
         if "OwpenGram" in value:
-            xml.write_text(value.replace("OwpenGram", "HaslGram"), encoding="utf-8")
+            translated = value.replace("OwpenGram", "HaslGram")
+            # Separate read-only catalog preview: installing must never
+            # remove or overwrite the user's existing HaslGram sessions.
+            translated = translated.replace(
+                '<string name="AppName">HaslGram</string>',
+                '<string name="AppName">HaslGram Gifts Test</string>',
+            )
+            xml.write_text(translated, encoding="utf-8")
             count += 1
     if count < 1:
         raise ValueError("No OwpenGram application strings were found")
@@ -643,7 +650,7 @@ def main() -> None:
 
     print(
         "HaslGram patches applied: "
-        f"com.haslgram.messenger, {SERVER_HOST}:{SERVER_PORT} DC{SERVER_DC}, "
+        f"com.haslgram.gifts.preview, {SERVER_HOST}:{SERVER_PORT} DC{SERVER_DC}, "
         f"{count} locales, server-only selection."
     )
     print("This is a TEST build; full traffic audit is still required.")
