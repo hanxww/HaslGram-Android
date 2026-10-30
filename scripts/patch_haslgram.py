@@ -175,6 +175,10 @@ def main() -> None:
               "build ARM64 APK")
     app_gradle.write_text(ag, encoding="utf-8")
 
+    # Install the pinned read-only gift browser without altering Stars transactions.
+    from gifts_overlay import apply_gifts_overlay
+    apply_gifts_overlay(root)
+
     print(
         "HaslGram patches applied: "
         f"com.haslgram.messenger, {SERVER_HOST}:{SERVER_PORT} DC{SERVER_DC}, "
