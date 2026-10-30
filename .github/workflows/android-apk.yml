@@ -6,6 +6,17 @@ on:
     paths:
       - '.github/workflows/android-apk.yml'
       - 'scripts/patch_haslgram.py'
+      - 'scripts/gifts_overlay.py'
+      - 'scripts/haslgram_gifts/**'
+      - 'scripts/tests/**'
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/android-apk.yml'
+      - 'scripts/patch_haslgram.py'
+      - 'scripts/gifts_overlay.py'
+      - 'scripts/haslgram_gifts/**'
+      - 'scripts/tests/**'
   workflow_dispatch:
 
 permissions:
@@ -20,6 +31,9 @@ jobs:
         uses: actions/checkout@v4
         with:
           path: haslgram
+
+      - name: Test HaslGram source overlays
+        run: python3 -m unittest discover -s haslgram/scripts/tests -v
 
       - name: Checkout Android source
         uses: actions/checkout@v4
