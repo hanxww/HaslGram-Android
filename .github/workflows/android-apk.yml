@@ -1,8 +1,8 @@
-name: HaslGram Android APK
+name: HaslGram Gifts Catalog Preview APK (separate app)
 
 on:
   push:
-    branches: [main, feature/gifts-catalog-visible-readonly-v01]
+    branches: [main, feature/gifts-catalog-visible-readonly-v01, feature/gifts-side-by-side-preview-v02]
     paths:
       - '.github/workflows/android-apk.yml'
       - 'scripts/patch_haslgram.py'
@@ -91,6 +91,8 @@ jobs:
           grep -q 'Подарки HaslGram пока доступны только для просмотра' android-source/TMessagesProj/src/main/java/org/telegram/ui/Gifts/GiftSheet.java
           grep -q 'HaslGramGiftCatalogPreview' android-source/TMessagesProj/src/main/res/values/strings.xml
           grep -q 'HaslGramGiftCatalogPreview' android-source/TMessagesProj/src/main/res/values-ru/strings.xml
+          grep -Fq 'APP_PACKAGE=com.haslgram.gifts.preview' android-source/gradle.properties
+          grep -Fq '<string name="AppName">HaslGram Gifts Test</string>' android-source/TMessagesProj/src/main/res/values/strings.xml
 
       - name: Generate HaslGram icons and splash art
         run: |
@@ -120,16 +122,16 @@ jobs:
           apk='android-source/TMessagesProj_AppStandalone/build/outputs/apk/afat/debug/app.apk'
           test -s "$apk"
           python3 haslgram/scripts/verify_apk_pinned_rsa.py "$apk"
-          "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging "$apk" | grep "com.haslgram.messenger"
-          "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging "$apk" | grep -F "application-label:'HaslGram'"
+          "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging "$apk" | grep "com.haslgram.gifts.preview"
+          "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging "$apk" | grep -F "application-label:'HaslGram Gifts Test'"
           mkdir -p artifacts
-          cp "$apk" artifacts/HaslGram-Android-arm64-branded-test.apk
-          (cd artifacts && sha256sum HaslGram-Android-arm64-branded-test.apk > SHA256SUMS.txt)
+          cp "$apk" artifacts/HaslGram-Gifts-Catalog-Preview-arm64.apk
+          (cd artifacts && sha256sum HaslGram-Gifts-Catalog-Preview-arm64.apk > SHA256SUMS.txt)
 
       - name: Upload test APK
         uses: actions/upload-artifact@v4
         with:
-          name: HaslGram-Android-arm64-branded-test
+          name: HaslGram-Gifts-Catalog-Preview-arm64
           path: artifacts/*
           retention-days: 14
           if-no-files-found: error
