@@ -29,8 +29,12 @@ This is an **early test build**. The server list and account routing are patched
 to select HaslGram. It is not a completed network-isolation security audit:
 there may be other Telegram endpoints, web links or services in the upstream
 client which will need review before release. Similarly, paid features,
-Hasl Stars, gifts, Premium, virtual numbers and the shop are not yet integrated
-into the Android UI.
+Hasl Stars, **gift purchases and upgrades**, Premium, virtual numbers and the
+shop are not yet integrated into the Android UI. A **read-only** gift catalog
+screen is being introduced: it shows Telegram-source historical gift metadata
+and lazily plays SHA-256-verified TGS files from the HaslGram HTTPS endpoint.
+It does not imply a Telegram gift is owned, currently on sale, or purchasable
+with Hasl Stars. See [gifts UI details](docs/gifts-readonly.md).
 
 The build reads `/owpengram/server-info` on the HaslGram MTProto endpoint.
 It refuses to build unless the fetched RSA key matches the independently pinned
