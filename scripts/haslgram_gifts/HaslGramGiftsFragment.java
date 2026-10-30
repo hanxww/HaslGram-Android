@@ -7,7 +7,6 @@
 package org.telegram.ui;
 
 import android.content.Context;
-import android.graphics.Color;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
@@ -384,8 +383,9 @@ public class HaslGramGiftsFragment extends BaseFragment {
                     if (destroyed) return;
                     File file = mediaFile(gift);
                     AndroidUtilities.runOnUIThread(() -> {
-                        if (destroyed || !gift.id.equals(holder.boundId) ||
-                            !holder.animation.isAttachedToWindow()) return;
+                        // RLottieImageView can prepare the drawable before attachment
+                        // and will start it when the recycled row enters the viewport.
+                        if (destroyed || !gift.id.equals(holder.boundId)) return;
                         try {
                             holder.clearAnimation();
                             RLottieDrawable drawable = new RLottieDrawable(
