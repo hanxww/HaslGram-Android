@@ -115,7 +115,7 @@ public class HaslGramGiftsFragment extends BaseFragment {
         return AndroidUtilities.dp(value);
     }
 
-    private TextView text(Context context, int sp, String themeKey) {
+    private TextView text(Context context, int sp, int themeKey) {
         TextView view = new TextView(context);
         view.setTextSize(sp);
         view.setTextColor(Theme.getColor(themeKey));
